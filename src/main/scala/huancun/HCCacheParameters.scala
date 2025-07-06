@@ -107,7 +107,7 @@ case class HCCacheParameters
   echoField: Seq[BundleFieldBase] = Nil,
   reqField: Seq[BundleFieldBase] = Nil, // master
   respKey: Seq[BundleKeyBase] = Nil,
-  reqKey: Seq[BundleKeyBase] = Seq(PrefetchKey, PreferCacheKey, AliasKey, ReqSourceKey), // slave
+  reqKey: Seq[BundleKeyBase] = Seq(PrefetchKey, PreferCacheKey, AliasKey), // slave, removed ReqSourceKey
   respField: Seq[BundleFieldBase] = Nil,
   ctrl: Option[CacheCtrl] = None,
   sramClkDivBy2: Boolean = false,

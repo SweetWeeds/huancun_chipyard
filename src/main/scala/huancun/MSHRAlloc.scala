@@ -22,7 +22,7 @@ package huancun
 import org.chipsalliance.cde.config.Parameters
 import chisel3._
 import chisel3.util._
-import huancun.utils._
+import utility._
 import utility._
 import freechips.rocketchip.tilelink._
 

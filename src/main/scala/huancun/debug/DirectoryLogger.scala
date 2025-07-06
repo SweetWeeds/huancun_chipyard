@@ -5,7 +5,7 @@ import chisel3._
 import chisel3.experimental.{IntParam, StringParam}
 import chisel3.util._
 import huancun.HCCacheParamsKey
-import utility._
+import utility.{HasCLikeTypes}
 
 object TypeId {
   val self_dir = 0

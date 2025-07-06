@@ -39,7 +39,7 @@ class TPmeta(implicit p: Parameters) extends TPmetaModule
 {
   val io = IO(new TPmetaIO())
   val tpDataTable = Module(
-    new SRAMTemplate(new metaEntry(), set = nrSet, way = metaAssoc, shouldReset = false, singlePort = true)
+    new SRAMTemplate(new metaEntry(), nrSet, metaAssoc, shouldReset = false, singlePort = true)
   )
 
   val readReqValid = io.req.valid && !io.req.bits.wmode
@@ -51,19 +51,18 @@ class TPmeta(implicit p: Parameters) extends TPmetaModule
   val wdata = Wire(new metaEntry())
   wdata.rawData := io.req.bits.rawData
   wdata.hartid := io.req.bits.hartid
-  tpDataTable.io.w.apply(
-    valid = writeReqValid,
-    data = wdata,
-    setIdx = io.req.bits.set,
-    waymask = UIntToOH(io.req.bits.way)
-  )
+  
+  tpDataTable.io.w.req.valid := writeReqValid
+  tpDataTable.io.w.req.bits.data := VecInit(Seq(wdata))
+  tpDataTable.io.w.req.bits.setIdx := io.req.bits.set
+  if (metaAssoc > 1) tpDataTable.io.w.req.bits.waymask.foreach(_ := UIntToOH(io.req.bits.way))
 
   val readReqValidReg = RegNext(readReqValid, false.B)
   val readReqReg = RegEnable(io.req.bits, readReqValid)
 
   val rdata = Reg(new metaEntry())
   when(readReqValidReg) {
-    rdata := tpDataTable.io.r.resp.data(readReqReg.way)
+    rdata := tpDataTable.io.r.resp.bits.data(readReqReg.way)
   }
 
   io.resp.valid := RegNext(readReqValidReg) && (rdata.hartid === RegNext(readReqReg).hartid)

@@ -1056,7 +1056,7 @@ class MSHR()(implicit p: Parameters) extends BaseMSHR[DirResult, SelfDirWrite, S
   oa.bufIdx := req.bufIdx
   oa.size := req.size
   oa.reqSource := Mux(req.opcode === Hint,
-    if (cacheParams.level == 2) req.reqSource else MemReqSource.Prefetch2L3Unknown.id.U,
+    if (cacheParams.level == 2) req.reqSource else MemReqSource.Prefetch2L3Unknown.id,
     req.reqSource
   )
 

@@ -25,7 +25,7 @@ import chisel3.util._
 import chisel3.util.random.LFSR
 import freechips.rocketchip.tilelink.TLMessages
 import freechips.rocketchip.util.{Pow2ClockDivider, ReplacementPolicy}
-import huancun.utils._
+import utility._
 import utility.{ClockGate, Code}
 
 trait BaseDirResult extends HuanCunBundle {
@@ -109,7 +109,7 @@ class SubDirectory[T <: Data](
   val masked_clock = Option.when(clk_div_by_2) {
     val clk_en = RegInit(false.B)
     clk_en := ~clk_en
-    ClockGate(false.B, clk_en, clock)
+    ClockGate(clock, clk_en)
   }
 
   val tag_wen = io.tag_w.valid
@@ -122,34 +122,38 @@ class SubDirectory[T <: Data](
   def tagCode: Code = Code.fromString(p(HCCacheParamsKey).tagECC)
 
   val eccTagBits = tagCode.width(tagBits)
-  val eccBits = eccTagBits - tagBits
+  val eccBits = Math.max(0, eccTagBits - tagBits)  // Ensure non-negative
   println(s"Tag ECC bits:$eccBits")
   val tagRead = Wire(Vec(ways, UInt(tagBits.W)))
-  val eccRead = Wire(Vec(ways, UInt(eccBits.W)))
+  val eccRead = if (eccBits > 0) Wire(Vec(ways, UInt(eccBits.W))) else Wire(Vec(ways, UInt(1.W)))
   val tagArray = Module(new SRAMTemplate(UInt(tagBits.W), sets, ways, singlePort = true, input_clk_div_by_2 = clk_div_by_2))
   if(eccBits > 0){
     val eccArray = Module(new SRAMTemplate(UInt(eccBits.W), sets, ways, singlePort = true, input_clk_div_by_2 = clk_div_by_2))
-    eccArray.io.w(
-      io.tag_w.fire,
-      tagCode.encode(io.tag_w.bits.tag).head(eccBits),
-      io.tag_w.bits.set,
-      UIntToOH(io.tag_w.bits.way)
-    )
+    eccArray.io.w.req.valid := io.tag_w.fire
+    eccArray.io.w.req.bits.data := tagCode.encode(io.tag_w.bits.tag).head(eccBits)
+    eccArray.io.w.req.bits.setIdx := io.tag_w.bits.set
+    if (ways > 1) eccArray.io.w.req.bits.waymask.foreach(_ := UIntToOH(io.tag_w.bits.way))
+    
+    eccArray.io.r.req.valid := io.read.fire
+    eccArray.io.r.req.bits.setIdx := io.read.bits.set
+    if (ways > 1) eccArray.io.r.req.bits.waymask.foreach(_ := Fill(ways, true.B))  // Read all ways
     if (clk_div_by_2) {
       eccArray.clock := masked_clock.get
     }
-    eccRead := eccArray.io.r(io.read.fire, io.read.bits.set).resp.data
+    eccRead := RegNext(eccArray.io.r.resp.bits.data)  // Need to store read response - Vec[UInt]
   } else {
     eccRead.foreach(_ := 0.U)
   }
 
-  tagArray.io.w(
-    io.tag_w.fire,
-    io.tag_w.bits.tag,
-    io.tag_w.bits.set,
-    UIntToOH(io.tag_w.bits.way)
-  )
-  tagRead := tagArray.io.r(io.read.fire, io.read.bits.set).resp.data
+  tagArray.io.w.req.valid := io.tag_w.fire
+  tagArray.io.w.req.bits.data := io.tag_w.bits.tag
+  tagArray.io.w.req.bits.setIdx := io.tag_w.bits.set
+  if (ways > 1) tagArray.io.w.req.bits.waymask.foreach(_ := UIntToOH(io.tag_w.bits.way))
+  
+  tagArray.io.r.req.valid := io.read.fire  
+  tagArray.io.r.req.bits.setIdx := io.read.bits.set
+  if (ways > 1) tagArray.io.r.req.bits.waymask.foreach(_ := Fill(ways, true.B))  // Read all ways
+  tagRead := RegNext(tagArray.io.r.resp.bits.data)  // Store read response - Vec[UInt]
 
   if (clk_div_by_2) {
     metaArray.clock := masked_clock.get
@@ -174,17 +178,31 @@ class SubDirectory[T <: Data](
     }
     0.U
   } else {
-    val replacer_sram = Module(new SRAMTemplate(UInt(repl.nBits.W), sets, singlePort = true, shouldReset = true))
-    val repl_sram_r = replacer_sram.io.r(io.read.fire, io.read.bits.set).resp.data(0)
+    val replacer_sram = Module(new SRAMTemplate(UInt(repl.nBits.W), sets, 1, singlePort = true, shouldReset = true, input_clk_div_by_2 = false))
+    
+    // Read setup
+    replacer_sram.io.r.req.valid := io.read.fire
+    replacer_sram.io.r.req.bits.setIdx := io.read.bits.set
+    val repl_sram_r = RegNext(replacer_sram.io.r.resp.bits.data(0))
+    
     val repl_state_hold = WireInit(0.U(repl.nBits.W))
     repl_state_hold := HoldUnless(repl_sram_r, RegNext(io.read.fire, false.B))
     val next_state = repl.get_next_state(repl_state_hold, way_s1)
-    replacer_sram.io.w(replacer_wen, RegNext(next_state), RegNext(reqReg.set), 1.U)
+    
+    // Write setup
+    replacer_sram.io.w.req.valid := replacer_wen
+    replacer_sram.io.w.req.bits.data := RegNext(next_state)
+    replacer_sram.io.w.req.bits.setIdx := RegNext(reqReg.set)
+    
     repl_state_hold
   }
 
   io.resp.valid := reqValidReg
-  val metas = metaArray.io.r(io.read.fire, io.read.bits.set).resp.data
+  // Setup metaArray read
+  metaArray.io.r.req.valid := io.read.fire
+  metaArray.io.r.req.bits.setIdx := io.read.bits.set
+  if (ways > 1) metaArray.io.r.req.bits.waymask.foreach(_ := Fill(ways, true.B))  // Read all ways
+  val metas = RegNext(metaArray.io.r.resp.bits.data)  // Store read response
   val tagMatchVec = tagRead.map(_(tagBits - 1, 0) === reqReg.tag)
   val metaValidVec = metas.map(dir_hit_fn)
   val hitVec = tagMatchVec.zip(metaValidVec).map(x => x._1 && x._2)
@@ -218,12 +236,10 @@ class SubDirectory[T <: Data](
   io.resp.bits.tag := tag_s2
   io.resp.bits.error := io.resp.bits.hit && error_s2
 
-  metaArray.io.w(
-    !resetFinish || dir_wen,
-    Mux(resetFinish, io.dir_w.bits.dir, dir_init),
-    Mux(resetFinish, io.dir_w.bits.set, resetIdx),
-    Mux(resetFinish, UIntToOH(io.dir_w.bits.way), Fill(ways, true.B))
-  )
+  metaArray.io.w.req.valid := !resetFinish || dir_wen
+  metaArray.io.w.req.bits.data := Mux(resetFinish, io.dir_w.bits.dir, dir_init)
+  metaArray.io.w.req.bits.setIdx := Mux(resetFinish, io.dir_w.bits.set, resetIdx)
+  if (ways > 1) metaArray.io.w.req.bits.waymask.foreach(_ := Mux(resetFinish, UIntToOH(io.dir_w.bits.way), Fill(ways, true.B)))
 
   val cycleCnt = Counter(true.B, 2)
   val resetMask = if (clk_div_by_2) cycleCnt._1(0) else true.B

@@ -186,8 +186,8 @@ class Slice()(implicit p: Parameters) extends HuanCunModule {
   val select_c = c_mshr.io.status.valid
   val select_bc = bc_mshr.io.status.valid
 
-  val bc_mask_latch = RegInit(0.U.asTypeOf(mshrAlloc.io.bc_mask.bits))
-  val c_mask_latch = RegInit(0.U.asTypeOf(mshrAlloc.io.c_mask.bits))
+  val bc_mask_latch = RegInit(VecInit(Seq.fill(mshrsAll)(false.B)))
+  val c_mask_latch = RegInit(VecInit(Seq.fill(mshrsAll)(false.B)))
   when(mshrAlloc.io.bc_mask.valid) {
     bc_mask_latch := mshrAlloc.io.bc_mask.bits
   }
@@ -347,7 +347,7 @@ class Slice()(implicit p: Parameters) extends HuanCunModule {
       m.io.nestedwb.c_set_hit := set_hit
   }
 
-  bc_mshr.io.nestedwb := 0.U.asTypeOf(nestedWb)
+  bc_mshr.io.nestedwb := 0.U.asTypeOf(new NestedWriteback)
   bc_mshr.io.nestedwb.set := c_mshr.io.status.bits.set
   bc_mshr.io.nestedwb.tag := c_mshr.io.status.bits.tag
   bc_mshr.io.nestedwb.c_set_dirty := nestedWb.c_set_dirty
@@ -368,7 +368,7 @@ class Slice()(implicit p: Parameters) extends HuanCunModule {
     }
   }
 
-  c_mshr.io.nestedwb := 0.U.asTypeOf(nestedWb)
+  c_mshr.io.nestedwb := 0.U.asTypeOf(new NestedWriteback)
   c_mshr match {
     case mshr: noninclusive.MSHR =>
       mshr.io_probeAckDataThrough := false.B
@@ -661,8 +661,8 @@ class Slice()(implicit p: Parameters) extends HuanCunModule {
   )
   io.l3Miss := Cat(ms.init.init.map { m =>
     m.io.status.valid && m.io.status.bits.channel(0) && (
-      m.io.status.bits.reqSource === MemReqSource.CPULoadData.id.U ||
-      m.io.status.bits.reqSource === MemReqSource.CPUStoreData.id.U
+      m.io.status.bits.reqSource === MemReqSource.CPULoadData.id ||
+      m.io.status.bits.reqSource === MemReqSource.CPUStoreData.id
     )
   }).orR
 

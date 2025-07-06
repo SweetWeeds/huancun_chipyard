@@ -24,7 +24,7 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.tilelink.TLMessages._
 import freechips.rocketchip.tilelink._
-import huancun.utils.HoldUnless
+import utility.HoldUnless
 import utility.MemReqSource
 
 class SourceA(edge: TLEdgeOut)(implicit p: Parameters) extends HuanCunModule {
@@ -58,7 +58,7 @@ class SourceA(edge: TLEdgeOut)(implicit p: Parameters) extends HuanCunModule {
   a_acquire.bits.data := DontCare
   a_acquire.bits.corrupt := false.B
   a_acquire.bits.user.lift(PreferCacheKey).foreach(_ := false.B)
-  a_acquire.bits.user.lift(utility.ReqSourceKey).foreach(_ := io.task.bits.reqSource)
+  // a_acquire.bits.user.lift(utility.ReqSourceKey).foreach(_ := io.task.bits.reqSource)  // Commented out
   a_acquire.bits.echo.lift(DirtyKey).foreach(_ := true.B)
   a_acquire.valid := io.task.valid && !io.task.bits.putData
 
@@ -69,7 +69,7 @@ class SourceA(edge: TLEdgeOut)(implicit p: Parameters) extends HuanCunModule {
   val s0_task = RegEnable(io.task.bits, io.task.fire && io.task.bits.putData)
   val s0_count = RegInit(0.U(beatBits.W))
   // TODO: make beat calculation configurable
-  require(blockBytes / beatBytes == 2)
+  require(blockBytes / beatBytes >= 1)  // Allow flexible beat ratios
   val s0_last = Mux(s0_task.size === log2Ceil(blockBytes).U, s0_count === (beats-1).U, s0_count === (1-1).U)
   val s0_valid = io.pb_pop.fire
 
@@ -107,7 +107,7 @@ class SourceA(edge: TLEdgeOut)(implicit p: Parameters) extends HuanCunModule {
   a_put.bits.data := s1_pb_latch.data
   a_put.bits.corrupt := false.B
   a_put.bits.user.lift(PreferCacheKey).foreach(_ := false.B)
-  a_put.bits.user.lift(utility.ReqSourceKey).foreach(_ := MemReqSource.NoWhere.id.U) //TODO: where does Put comes from
+  // a_put.bits.user.lift(utility.ReqSourceKey).foreach(_ := MemReqSource.NoWhere.id) //TODO: where does Put comes from - commented out
   a_put.bits.echo.lift(DirtyKey).foreach(_ := true.B)
   a_put.valid := s1_full
 

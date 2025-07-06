@@ -42,7 +42,7 @@ class SourceC(edge: TLEdgeOut)(implicit p: Parameters) extends HuanCunModule {
     val task = Flipped(DecoupledIO(new SourceCReq))
   })
 
-  val queue_size = 4 + sramLatency
+  val queue_size = math.max(4, beatSize + 2) + sramLatency
   val queue_flow = true
 
   val bs_busy = RegInit(false.B)
@@ -73,7 +73,7 @@ class SourceC(edge: TLEdgeOut)(implicit p: Parameters) extends HuanCunModule {
 
   // Stage 0 => Stage 1
   val task_handled = Mux(has_data, io.bs_raddr.ready, io.task.fire)
-  val s1_task = RegInit(0.U.asTypeOf(io.task.bits.cloneType))
+  val s1_task = RegInit(0.U.asTypeOf(new SourceCReq))
   val s1_beat = RegInit(0.U(beatBits.W))
   val s1_valid = RegInit(false.B)
   when(s1_valid){
@@ -100,7 +100,7 @@ class SourceC(edge: TLEdgeOut)(implicit p: Parameters) extends HuanCunModule {
   queue.io.enq.bits.data := io.bs_rdata.data
   queue.io.enq.bits.corrupt := io.bs_rdata.corrupt
   queue.io.enq.bits.user.lift(PreferCacheKey).foreach(_ := true.B)
-  queue.io.enq.bits.user.lift(ReqSourceKey).foreach(_ := MemReqSource.NoWhere.id.U)
+  // queue.io.enq.bits.user.lift(ReqSourceKey).foreach(_ := MemReqSource.NoWhere.id)  // Commented out
   queue.io.enq.bits.echo.lift(DirtyKey).foreach(_ := pipeOut.bits.task.dirty)
   queue.io.enq.bits.user.lift(IsHitKey).foreach(_ := true.B)
 

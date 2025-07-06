@@ -220,7 +220,7 @@ class HuanCun(implicit p: Parameters) extends LazyModule with HasHuanCunParamete
             fifoId = None
           )
         },
-        beatBytes = 32,
+        beatBytes = cacheParams.channelBytes.d.get,
         minLatency = 2,
         responseFields = cacheParams.respField,
         requestKeys = cacheParams.reqKey,
@@ -362,7 +362,7 @@ class HuanCun(implicit p: Parameters) extends LazyModule with HasHuanCunParamete
       case (((in, edgeIn), (out, edgeOut)), i) =>
         require(in.params.dataBits == out.params.dataBits)
         val rst = if(cacheParams.level == 3 && !cacheParams.simulation) {
-          ResetGen()
+          ResetGen(reset)
         } else reset
         val slice = withReset(rst){ Module(new Slice()(p.alterPartial {
           case EdgeInKey  => edgeIn

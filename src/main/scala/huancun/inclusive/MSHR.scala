@@ -379,6 +379,7 @@ class MSHR()(implicit p: Parameters) extends BaseMSHR[DirResult, DirWrite, TagWr
   oa.bufIdx := req.bufIdx
   oa.putData := req.opcode(2,1) === 0.U
   oa.size := req.size
+  oa.reqSource := req.reqSource
 
   ob.tag := Mux(!s_rprobe, meta.tag, req.tag)
   ob.set := req.set
@@ -439,6 +440,7 @@ class MSHR()(implicit p: Parameters) extends BaseMSHR[DirResult, DirWrite, TagWr
   od.useBypass := false.B
   od.bufIdx := req.bufIdx
   od.bypassPut := false.B
+  od.isHit := meta.hit
 
   oe.sink := sink
 
@@ -596,6 +598,9 @@ class MSHR()(implicit p: Parameters) extends BaseMSHR[DirResult, DirWrite, TagWr
   io.status.bits.blockC := !meta_valid
   // C nest B | C nest A
   io.status.bits.nestC := meta_valid && (!w_rprobeackfirst || !w_pprobeackfirst || !w_grantfirst)
+  io.status.bits.channel := req.channel
+  io.status.bits.is_miss := !meta.hit
+  io.status.bits.reqSource := req.reqSource
 
   io.ecc := DontCare
   io.ecc.valid := false.B

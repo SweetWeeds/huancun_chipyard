@@ -22,7 +22,6 @@ package huancun
 import org.chipsalliance.cde.config.Parameters
 import chisel3._
 import chisel3.util._
-import huancun.utils.SRAMWrapper
 import utility._
 
 class DataStorage(implicit p: Parameters) extends HuanCunModule {
@@ -66,8 +65,10 @@ class DataStorage(implicit p: Parameters) extends HuanCunModule {
       new SRAMWrapper(
         gen = UInt((8 * bankBytes).W),
         set = nrRows,
-        n = cacheParams.sramDepthDiv,
-        clk_div_by_2 = cacheParams.sramClkDivBy2
+        way = cacheParams.sramDepthDiv,
+        shouldReset = false,
+        holdRead = false,
+        singlePort = false
       )
     )
   }
@@ -76,8 +77,10 @@ class DataStorage(implicit p: Parameters) extends HuanCunModule {
       Module(new SRAMWrapper(
         gen = UInt((eccBits * stackSize).W),
         set = nrRows,
-        n = cacheParams.sramDepthDiv,
-        clk_div_by_2 = cacheParams.sramClkDivBy2
+        way = cacheParams.sramDepthDiv,
+        shouldReset = false,
+        holdRead = false,
+        singlePort = false
       ))
     }
   } else null
@@ -127,7 +130,7 @@ class DataStorage(implicit p: Parameters) extends HuanCunModule {
       0.U,
       out.bankSel & FillInterleaved(stackSize, accessVec)
     )
-    out.data := Cat(Seq.fill(nrStacks)(data.data)).asTypeOf(out.data.cloneType)
+    out.data := VecInit(Seq.fill(nrBanks)(Cat(Seq.fill(nrStacks / nrBanks)(data.data(0)))))
     out
   }
 
@@ -180,32 +183,30 @@ class DataStorage(implicit p: Parameters) extends HuanCunModule {
       val wen = en && selectedReq.wen
       val wen_latch = RegNext(wen, false.B)
       bankedData(i).io.w.req.valid := wen_latch
-      bankedData(i).io.w.req.bits.apply(
-        setIdx = RegNext(selectedReq.index),
-        data = RegNext(selectedReq.data(i)),
-        waymask = 1.U
-      )
+      bankedData(i).io.w.req.bits.setIdx := RegNext(selectedReq.index)
+      bankedData(i).io.w.req.bits.data := VecInit(Seq(RegNext(selectedReq.data(i))))
+      bankedData(i).io.w.req.bits.waymask := 1.U
+      
       // Read
       val ren = en && !selectedReq.wen
       val ren_latch = RegNext(ren, false.B)
       bankedData(i).io.r.req.valid := ren_latch
-      bankedData(i).io.r.req.bits.apply(setIdx = RegNext(selectedReq.index))
+      bankedData(i).io.r.req.bits.setIdx := RegNext(selectedReq.index)
     } else {
       // Write
       val wen = en && selectedReq.wen
       bankedData(i).io.w.req.valid := wen
-      bankedData(i).io.w.req.bits.apply(
-        setIdx = selectedReq.index,
-        data = selectedReq.data(i),
-        waymask = 1.U
-      )
+      bankedData(i).io.w.req.bits.setIdx := selectedReq.index
+      bankedData(i).io.w.req.bits.data := VecInit(Seq.fill(cacheParams.sramDepthDiv)(selectedReq.data(i)))
+      bankedData(i).io.w.req.bits.waymask := 1.U
+      
       // Read
       val ren = en && !selectedReq.wen
       bankedData(i).io.r.req.valid := ren
-      bankedData(i).io.r.req.bits.apply(setIdx = selectedReq.index)
+      bankedData(i).io.r.req.bits.setIdx := selectedReq.index
     }
     // Ecc
-    outData(i) := bankedData(i).io.r.resp.data(0)
+    outData(i) := bankedData(i).io.r.resp.bits.data(0)
   }
 
   if (eccBits > 0) {
@@ -215,16 +216,15 @@ class DataStorage(implicit p: Parameters) extends HuanCunModule {
              .zip(dataEccArray)
          ) {
       eccArray.io.w.req.valid := banks.head.io.w.req.valid
-      eccArray.io.w.req.bits.apply(
-        setIdx = banks.head.io.w.req.bits.setIdx,
-        data = VecInit(banks.map(b =>
-          dataCode.encode(b.io.w.req.bits.data(0)).head(eccBits)
-        )).asUInt,
-        waymask = 1.U
-      )
+      eccArray.io.w.req.bits.setIdx := banks.head.io.w.req.bits.setIdx
+      eccArray.io.w.req.bits.data := VecInit(Seq(VecInit(banks.map(b =>
+        dataCode.encode(b.io.w.req.bits.data(0)).head(eccBits)
+      )).asUInt))
+      eccArray.io.w.req.bits.waymask := 1.U
+      
       eccArray.io.r.req.valid := banks.head.io.r.req.valid
-      eccArray.io.r.req.bits.apply(setIdx = banks.head.io.r.req.bits.setIdx)
-      ecc := eccArray.io.r.resp.data(0).asTypeOf(Vec(stackSize, UInt(eccBits.W)))
+      eccArray.io.r.req.bits.setIdx := banks.head.io.r.req.bits.setIdx
+      ecc := VecInit(eccArray.io.r.resp.bits.data(0).asBools.grouped(eccBits).map(VecInit(_).asUInt).toSeq)
     }
   } else {
   }
